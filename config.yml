@@ -1,0 +1,7 @@
+openai:
+  model: gpt-5-mini
+  system_prompt: you are helpful assistant
+
+webhook:
+  base_url: https://sctp-ds2f-openai-wh-demo.onrender.com
+  path: /telegram_webhook
