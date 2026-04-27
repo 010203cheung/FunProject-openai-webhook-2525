@@ -182,6 +182,120 @@ The basic flow for `/telegram_webhook` is:
 
 The `/` route is only for checking the app. It returns information such as the configured OpenAI model, webhook path, and webhook URL.
 
+## Basic OpenAI API Usage with Memory and Web Search
+
+This app uses the OpenAI Responses API. The important part of the OpenAI call is:
+
+```python
+request_kwargs = {
+    "model": MODEL_ID,
+    "instructions": SYSTEM_PROMPT,
+    "tools": openai_tools,
+    "tool_choice": "auto",
+    "store": True,
+    "input": text,
+}
+
+previous_response_id = openai_chat.get("previous_response_id")
+if previous_response_id:
+    request_kwargs["previous_response_id"] = previous_response_id
+
+openai_response = openai_client.responses.create(**request_kwargs)
+openai_chat["previous_response_id"] = openai_response.id
+reply = openai_response.output_text or ""
+```
+
+The `input` field is the user's latest Telegram message.
+
+The `instructions` field is the system prompt from `config.yml`. This is where you define the assistant's behavior:
+
+```yaml
+openai:
+  system_prompt: you are helpful assistant
+```
+
+The `tools` field enables web search:
+
+```python
+openai_tools = [{"type": "web_search"}]
+```
+
+With `tool_choice` set to `auto`, the model can decide when web search is useful. This is helpful for questions about current events, prices, schedules, recent facts, or anything that may have changed recently.
+
+The `store=True` setting allows the response to be stored by OpenAI so the app can refer to it later by ID.
+
+The `previous_response_id` field gives the model memory. After each response, the app saves:
+
+```python
+openai_chat["previous_response_id"] = openai_response.id
+```
+
+On the next message from the same Telegram chat, the app sends that saved ID back to OpenAI. This creates a conversation chain, so the model can understand earlier messages in the same chat.
+
+## Memory Limitations
+
+The memory in this tutorial is intentionally simple.
+
+The app stores chat memory in this Python dictionary:
+
+```python
+chats = {}
+```
+
+This means:
+
+- Memory is kept only while the server process is running.
+- Memory is lost when the app restarts, redeploys, crashes, or scales to a different server instance.
+- Memory is separate for each Telegram chat ID.
+- The app stores only the latest `previous_response_id`, not a full local transcript.
+- Longer conversations still have context limits. Very long chats may eventually need summarizing or trimming.
+- Previous conversation context can increase token usage because earlier context may be included when the model responds.
+- Web search may add latency and tool-call cost when the model decides to search.
+
+This setup is good for a tutorial because it keeps the code short. For production, use persistent storage.
+
+## Adding Persistent Chat History Later
+
+To keep memory after restarts, store the chat state in a database instead of only using the `chats` dictionary.
+
+A simple database table can look like this:
+
+```text
+telegram_chat_id
+previous_response_id
+updated_at
+```
+
+The flow becomes:
+
+1. Telegram sends a message.
+2. Look up `previous_response_id` by `telegram_chat_id` in the database.
+3. If a previous response ID exists, include it in the OpenAI request.
+4. Send the message to OpenAI.
+5. Save the new `openai_response.id` back to the database.
+6. Send `openai_response.output_text` back to Telegram.
+
+For a small project, SQLite is enough. For a deployed app, use a managed database such as PostgreSQL, Redis, or another storage service available on your hosting platform.
+
+If you also want a readable transcript, create a second table:
+
+```text
+telegram_chat_id
+role
+message_text
+created_at
+```
+
+Then save each user message and assistant reply:
+
+```text
+telegram_chat_id | role      | message_text
+12345            | user      | What is Python?
+12345            | assistant | Python is a programming language...
+```
+
+You can use this transcript for debugging, analytics, or rebuilding context if needed. Keep privacy in mind: if you store user messages, tell users what you store and protect the database.
+
 ## Why Delete the Webhook on Startup?
 
 On startup, the app deletes the existing Telegram webhook with `drop_pending_updates=true`, then sets the webhook again.
