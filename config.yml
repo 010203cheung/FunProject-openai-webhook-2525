@@ -3,5 +3,5 @@ openai:
   system_prompt: you are helpful assistant
 
 webhook:
-  base_url: https://sctp-ds2f-openai-wh-demo.onrender.com
+  base_url: https://FunProject-openai-webhook-2525.onrender.com
   path: /telegram_webhook
